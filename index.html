@@ -1,0 +1,345 @@
+﻿<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="keywords" content="Vietnam phone number validation, bulk phone number lookup, Vietnam Telecom Services Company (MobiFone)" />
+    <meta name="description" content="Bulk phone number validation for Vietnam numbers. Verify if phone numbers are valid or disconnected using IPQualityScore API." />
+    <meta property="og:title" content="Bulk Phone Number Validation for Vietnam Numbers" />
+    <meta property="og:description" content="Bulk phone number validation for Vietnam numbers. Verify if phone numbers are valid or disconnected using IPQualityScore API." />
+    <meta property="og:url" content="https://你的域名/bulk-phone-validator" />
+    <link rel="canonical" href="https://你的域名/bulk-phone-validator" />
+    <title>Bulk Phone Number Validation for Vietnam Numbers</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
+    <!-- SweetAlert2 for notifications -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sweetalert2/11.15.10/sweetalert2.all.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/sweetalert2/11.15.10/sweetalert2.min.css" />
+    <!-- jQuery -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+
+    <style>
+        body {
+            background: #f7f9fc;
+            font-family: 'Arial', sans-serif;
+        }
+        .container {
+            max-width: 800px;
+            margin: 5% auto;
+            padding: 30px;
+            background: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .result-table {
+            margin-top: 20px;
+            display: none;
+        }
+        #loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .upload-section {
+            margin-bottom: 20px;
+        }
+        .upload-section input[type="file"] {
+            margin-top: 10px;
+        }
+        .upload-section button {
+            margin-top: 10px;
+        }
+        .drop-zone {
+            border: 2px dashed #007bff;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            cursor: pointer;
+            border-radius: 10px;
+        }
+        .drop-zone.dragover {
+            background-color: #e9ecef;
+        }
+        #progressBar {
+            display: none;
+            margin-top: 10px;
+        }
+        .download-buttons {
+            display: none;
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2 class="text-center">批量越南电话号码验证</h2>
+        <p class="text-center">上传文本文件以验证越南电话号码的真实性（格式：每行一个号码，例如 0762893783，支持 .txt、.csv 等格式）。</p>
+
+        <!-- 上传文件部分 -->
+        <div class="upload-section text-center">
+            <div class="drop-zone" id="dropZone">
+                <p>拖放文件到此处，或点击选择文件</p>
+                <input type="file" id="phoneFile" style="display: none;" />
+            </div>
+            <button id="uploadBtn" class="btn btn-primary">上传并验证</button>
+            <div id="progressBar" class="progress">
+                <div id="progress" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+            </div>
+            <!-- 下载按钮移动到这里 -->
+            <div class="download-buttons">
+                <button id="downloadResultsBtn" class="btn btn-success">下载结果</button>
+                <button id="downloadErrorsBtn" class="btn btn-danger">下载错误日志</button>
+            </div>
+        </div>
+
+        <!-- 加载动画 -->
+        <div id="loading">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+        </div>
+
+        <!-- 结果表格 -->
+        <div class="result-table">
+            <table class="table table-bordered">
+                <thead>
+                    <tr>
+                        <th>电话号码</th>
+                        <th>是否有效</th>
+                        <th>国家</th>
+                        <th>城市</th>
+                        <th>运营商</th>
+                        <th>线路类型</th>
+                        <th>是否泄露</th>
+                    </tr>
+                </thead>
+                <tbody id="resultBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // 替换为你的 ipqualityscore.com API 密钥
+        const IPQS_API_KEY = 'QWQtSI7jw3HICi8OiXMbH0HUbn0YD5FE';
+        const MAX_CONCURRENT_REQUESTS = 5; // 最大并发请求数，防止超限
+        const MAX_RETRIES = 3; // 最大重试次数
+
+        // 存储查询结果和错误日志
+        let results = [];
+        let errorLogs = [];
+
+        // 格式化并验证越南电话号码
+        function formatAndValidateVietnamPhoneNumber(phone) {
+            // 去除空格
+            phone = phone.trim().replace(/\s+/g, '');
+
+            // 如果号码以 +84 开头，转换为以 0 开头
+            if (phone.startsWith('+84')) {
+                phone = '0' + phone.slice(3);
+            }
+
+            // 如果号码不以 0 开头，自动添加 0
+            if (!phone.startsWith('0')) {
+                phone = '0' + phone;
+            }
+
+            // 验证号码格式（以 0 开头，9-10位数字）
+            const phonePattern = /^0[0-9]{8,9}$/;
+            return phonePattern.test(phone) ? phone : null;
+        }
+
+        // 拖放功能
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('phoneFile');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            fileInput.files = e.dataTransfer.files;
+            handleFileUpload();
+        });
+
+        fileInput.addEventListener('change', handleFileUpload);
+
+        // 上传按钮点击事件
+        $('#uploadBtn').on('click', handleFileUpload);
+
+        // 处理文件上传
+        async function handleFileUpload() {
+            if (!fileInput.files.length) {
+                Swal.fire("错误", "请先选择一个文件！", "error");
+                return;
+            }
+
+            const file = fileInput.files[0];
+            // 读取文件内容（支持所有文本文件）
+            const reader = new FileReader();
+            reader.onload = async function (e) {
+                const text = e.target.result;
+                const phoneNumbers = text.split('\n').map(num => num.trim()).filter(num => num);
+
+                if (phoneNumbers.length === 0) {
+                    Swal.fire("错误", "文件为空！", "error");
+                    return;
+                }
+
+                // 格式化和验证号码
+                const formattedNumbers = phoneNumbers.map(num => formatAndValidateVietnamPhoneNumber(num));
+                const invalidNumbers = phoneNumbers.filter((num, index) => !formattedNumbers[index]);
+                if (invalidNumbers.length > 0) {
+                    Swal.fire("警告", `以下号码格式无效：${invalidNumbers.join(', ')}`, "warning");
+                }
+
+                const validNumbers = formattedNumbers.filter(num => num);
+                if (validNumbers.length === 0) {
+                    Swal.fire("错误", "文件中没有有效的越南电话号码！", "error");
+                    return;
+                }
+
+                // 清空结果和错误日志
+                results = [];
+                errorLogs = [];
+
+                // 显示加载动画和进度条
+                $('#loading').show();
+                $('#progressBar').show();
+                $('.result-table').hide();
+                $('.download-buttons').hide();
+                $('#resultBody').empty();
+
+                // 并发查询号码
+                let completed = 0;
+                const chunkSize = MAX_CONCURRENT_REQUESTS;
+                for (let i = 0; i < validNumbers.length; i += chunkSize) {
+                    const chunk = validNumbers.slice(i, i + chunkSize);
+                    const promises = chunk.map(phone => validatePhoneNumber(phone));
+                    await Promise.all(promises);
+                    completed += chunk.length;
+                    const progress = (completed / validNumbers.length) * 100;
+                    $('#progress').css('width', `${progress}%`).text(`${Math.round(progress)}%`);
+                }
+
+                // 隐藏加载动画和进度条，显示结果和下载按钮
+                $('#loading').hide();
+                $('#progressBar').hide();
+                $('.result-table').show();
+                if (results.length > 0 || errorLogs.length > 0) {
+                    $('.download-buttons').show();
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // 验证电话号码（带重试机制）
+        async function validatePhoneNumber(phone, retryCount = 0) {
+            // 格式化越南号码，添加国家代码 +84
+            let formattedPhone = phone.startsWith('+84') ? phone : `+84${phone.replace(/^0/, '')}`;
+
+            try {
+                // 调用 ipqualityscore.com API
+                const response = await $.getJSON(`https://ipqualityscore.com/api/json/phone/${IPQS_API_KEY}/${formattedPhone}?country=VN`);
+                if (response.success === false) {
+                    throw new Error(response.message || 'API请求失败');
+                }
+
+                // 解析结果
+                const result = {
+                    phone: formattedPhone,
+                    valid: response.valid ? '有效' : '无效',
+                    country: response.country || '未知',
+                    city: response.city || '未知',
+                    carrier: response.carrier || '未知',
+                    line_type: response.line_type || '未知',
+                    leaked: response.leaked ? '已泄露' : '未泄露'
+                };
+
+                // 添加到结果
+                results.push(result);
+
+                // 添加到结果表格
+                $('#resultBody').append(`
+                    <tr>
+                        <td>${result.phone}</td>
+                        <td>${result.valid}</td>
+                        <td>${result.country}</td>
+                        <td>${result.city}</td>
+                        <td>${result.carrier}</td>
+                        <td>${result.line_type}</td>
+                        <td>${result.leaked}</td>
+                    </tr>
+                `);
+            } catch (error) {
+                if (retryCount < MAX_RETRIES) {
+                    // 如果失败，重试
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒后重试
+                    return validatePhoneNumber(phone, retryCount + 1);
+                }
+
+                // 达到最大重试次数，记录错误
+                errorLogs.push({
+                    phone: formattedPhone,
+                    error: error.message || '网络错误'
+                });
+
+                $('#resultBody').append(`
+                    <tr>
+                        <td>${formattedPhone}</td>
+                        <td colspan="6" style="color: red;">查询失败：${error.message || '网络错误'}</td>
+                    </tr>
+                `);
+            }
+        }
+
+        // 下载结果
+        $('#downloadResultsBtn').on('click', function () {
+            if (results.length === 0) {
+                Swal.fire("提示", "没有成功查询的结果可下载！", "info");
+                return;
+            }
+
+            const csvContent = [
+                "电话号码,是否有效,国家,城市,运营商,线路类型,是否泄露",
+                ...results.map(row => `${row.phone},${row.valid},${row.country},${row.city},${row.carrier},${row.line_type},${row.leaked}`)
+            ].join('\n');
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'phone_validation_results.csv');
+            link.click();
+        });
+
+        // 下载错误日志
+        $('#downloadErrorsBtn').on('click', function () {
+            if (errorLogs.length === 0) {
+                Swal.fire("提示", "没有错误日志可下载！", "info");
+                return;
+            }
+
+            const csvContent = [
+                "电话号码,错误原因",
+                ...errorLogs.map(log => `${log.phone},${log.error}`)
+            ].join('\n');
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'phone_validation_errors.csv');
+            link.click();
+        });
+    </script>
+</body>
+</html>
